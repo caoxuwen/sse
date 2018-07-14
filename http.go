@@ -21,7 +21,9 @@ func (s *Server) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-
+	//for nginx proxy
+	w.Header().Set("X-Accel-Buffering", "no");
+	
 	// Get the StreamID from the URL
 	streamID := r.URL.Query().Get("stream")
 	if streamID == "" {
