@@ -11,111 +11,112 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestHTTP(t *testing.T) {
-	// New Server
+func TestHTTPStreamHandler(t *testing.T) {
 	s := New()
 	defer s.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/events", s.HTTPHandler)
+	server := httptest.NewServer(mux)
 
-	Convey("Given a new http Handler", t, func() {
-		server := httptest.NewServer(mux)
+	s.CreateStream("test")
 
-		Convey("When creating a new stream", func() {
-			s.CreateStream("test")
+	c := NewClient(server.URL + "/events")
 
-			Convey("It should publish events to its subscriber", func() {
-				c := NewClient(server.URL + "/events")
-
-				events := make(chan *Event)
-				var cErr error
-				go func(cErr error) {
-					cErr = c.Subscribe("test", func(msg *Event) {
-						if msg.Data != nil {
-							events <- msg
-							return
-						}
-					})
-				}(cErr)
-
-				// Wait for subscriber to be registered and message to be published
-				time.Sleep(time.Millisecond * 200)
-				So(cErr, ShouldBeNil)
-				s.Publish("test", &Event{Data: []byte("test")})
-
-				msg, err := wait(events, time.Millisecond*500)
-				So(err, ShouldBeNil)
-				So(string(msg), ShouldEqual, "test")
-			})
-
+	events := make(chan *Event)
+	var cErr error
+	go func() {
+		cErr = c.Subscribe("test", func(msg *Event) {
+			if msg.Data != nil {
+				events <- msg
+				return
+			}
 		})
+	}()
 
-		Convey("When creating a new stream with existing events", func() {
-			s.CreateStream("test2")
-			defer s.RemoveStream("test2")
+	// Wait for subscriber to be registered and message to be published
+	time.Sleep(time.Millisecond * 200)
+	require.Nil(t, cErr)
+	s.Publish("test", &Event{Data: []byte("test")})
 
-			s.Publish("test2", &Event{Data: []byte("test 1")})
-			s.Publish("test2", &Event{Data: []byte("test 2")})
-			s.Publish("test2", &Event{Data: []byte("test 3")})
-			time.Sleep(time.Millisecond * 100)
+	msg, err := wait(events, time.Millisecond*500)
+	require.Nil(t, err)
+	assert.Equal(t, []byte(`test`), msg)
+}
 
-			Convey("And eventid is not specified", func() {
-				Convey("It should publish all previous events to its subscriber", func() {
-					var cErr error
+func TestHTTPStreamHandlerExistingEvents(t *testing.T) {
+	s := New()
+	defer s.Close()
 
-					c := NewClient(server.URL + "/events")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", s.HTTPHandler)
+	server := httptest.NewServer(mux)
 
-					events := make(chan *Event)
+	s.CreateStream("test")
 
-					go func(cErr error) {
-						cErr = c.Subscribe("test2", func(msg *Event) {
-							if len(msg.Data) > 0 {
-								events <- msg
-							}
-						})
-					}(cErr)
+	s.Publish("test", &Event{Data: []byte("test 1")})
+	s.Publish("test", &Event{Data: []byte("test 2")})
+	s.Publish("test", &Event{Data: []byte("test 3")})
 
-					So(cErr, ShouldBeNil)
+	time.Sleep(time.Millisecond * 100)
 
-					for i := 1; i <= 3; i++ {
-						msg, err := wait(events, time.Millisecond*500)
-						So(err, ShouldBeNil)
-						So(string(msg), ShouldEqual, "test "+strconv.Itoa(i))
-					}
-				})
-			})
+	c := NewClient(server.URL + "/events")
 
-			Convey("And eventid is specified", func() {
-				Convey("It should publish all events after eventid to its subscriber", func() {
-					var cErr error
-
-					c := NewClient(server.URL + "/events")
-					c.EventID = "2"
-
-					events := make(chan *Event)
-
-					go func(cErr error) {
-						cErr = c.Subscribe("test2", func(msg *Event) {
-							if len(msg.Data) > 0 {
-								events <- msg
-							}
-						})
-					}(cErr)
-
-					So(cErr, ShouldBeNil)
-
-					for i := 3; i <= 3; i++ {
-						msg, err := wait(events, time.Millisecond*500)
-						So(err, ShouldBeNil)
-						So(string(msg), ShouldEqual, "test "+strconv.Itoa(i))
-					}
-				})
-			})
+	events := make(chan *Event)
+	var cErr error
+	go func() {
+		cErr = c.Subscribe("test", func(msg *Event) {
+			if len(msg.Data) > 0 {
+				events <- msg
+			}
 		})
+	}()
 
-	})
+	require.Nil(t, cErr)
+
+	for i := 1; i <= 3; i++ {
+		msg, err := wait(events, time.Millisecond*500)
+		require.Nil(t, err)
+		assert.Equal(t, []byte("test "+strconv.Itoa(i)), msg)
+	}
+}
+
+func TestHTTPStreamHandlerEventID(t *testing.T) {
+	s := New()
+	defer s.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", s.HTTPHandler)
+	server := httptest.NewServer(mux)
+
+	s.CreateStream("test")
+
+	s.Publish("test", &Event{Data: []byte("test 1")})
+	s.Publish("test", &Event{Data: []byte("test 2")})
+	s.Publish("test", &Event{Data: []byte("test 3")})
+
+	time.Sleep(time.Millisecond * 100)
+
+	c := NewClient(server.URL + "/events")
+	c.EventID = "2"
+
+	events := make(chan *Event)
+	var cErr error
+	go func() {
+		cErr = c.Subscribe("test", func(msg *Event) {
+			if len(msg.Data) > 0 {
+				events <- msg
+			}
+		})
+	}()
+
+	require.Nil(t, cErr)
+
+	msg, err := wait(events, time.Millisecond*500)
+	require.Nil(t, err)
+	assert.Equal(t, []byte("test 3"), msg)
 }

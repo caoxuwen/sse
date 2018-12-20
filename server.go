@@ -17,7 +17,9 @@ type Server struct {
 	// Specifies the size of the message buffer for each stream
 	BufferSize int
 	// Enables creation of a stream when a client connects
-	AutoStream   bool
+	AutoStream bool
+	// Enables automatic replay for each new subscriber that connects
+	AutoReplay   bool
 	EncodeBase64 bool
 	Streams      map[string]*Stream
 	mu           sync.Mutex
@@ -28,6 +30,7 @@ func New() *Server {
 	return &Server{
 		BufferSize: DefaultBufferSize,
 		AutoStream: false,
+		AutoReplay: true,
 		Streams:    make(map[string]*Stream),
 	}
 }
@@ -45,16 +48,15 @@ func (s *Server) Close() {
 
 // CreateStream will create a new stream and register it
 func (s *Server) CreateStream(id string) *Stream {
-	str := newStream(s.BufferSize)
-	str.run()
-
-	// Register new stream
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.Streams[id] != nil {
 		return s.Streams[id]
 	}
+
+	str := newStream(s.BufferSize, s.AutoReplay)
+	str.run()
 
 	s.Streams[id] = str
 
